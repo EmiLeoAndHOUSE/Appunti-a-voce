@@ -26,6 +26,14 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: 🛠️ Setup Scaffolding Android e Gradle Wrapper
+        run: |
+          mkdir -p /tmp/backup
+          cp android/app/src/main/AndroidManifest.xml /tmp/backup/AndroidManifest.xml
+          flutter create --platforms=android --org com.example .
+          cp /tmp/backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          chmod +x android/gradlew || true
+
       - name: 📦 Scarica pacchetti dipendenze
         run: flutter pub get
 
