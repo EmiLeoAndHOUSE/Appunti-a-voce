@@ -182,10 +182,12 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
     }
 
     final directory = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    _activeFile = File('${directory.path}/nota_$timestamp.txt');
+    final now = DateTime.now();
+    final datePart = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    final timePart = "${now.hour.toString().padLeft(2, '0')}-${now.minute.toString().padLeft(2, '0')}-${now.second.toString().padLeft(2, '0')}";
+    _activeFile = File('${directory.path}/Nota_${datePart}_${timePart}.txt');
     await _activeFile!.writeAsString(
-      "--- NOTA VOCALE: ${DateTime.now().toString().split('.')[0]} ---\n\n",
+      "--- NOTA VOCALE: ${now.toString().split('.')[0]} ---\n\n",
       flush: true,
     );
 
@@ -854,7 +856,7 @@ class _DayDetailScreenState extends State<DayDetailScreen> {
                                           ),
                                         ),
                                         Text(
-                                          '${file.path.split('/').last} • $sizeStr',
+                                          '${file.uri.pathSegments.last} • $sizeStr',
                                           style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                                         ),
                                       ],
