@@ -71,7 +71,6 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
 
   late AnimationController _pulseController;
 
-  // Elenco file raggruppati per giorno: Chiave "YYYY-MM-DD" -> Lista di File
   Map<String, List<File>> _groupedDays = {};
   bool _isLoading = true;
 
@@ -127,7 +126,6 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
         .where((f) => f.path.endsWith('.txt'))
         .toList();
 
-    // Raggruppa per Giorno (Data di modifica del file)
     final Map<String, List<File>> groups = {};
     for (final file in allFiles) {
       final date = file.lastModifiedSync();
@@ -135,12 +133,10 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
       groups.putIfAbsent(key, () => []).add(file);
     }
 
-    // Ordina le note dentro ogni giorno (dalla più recente alla più vecchia)
     groups.forEach((key, list) {
       list.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
     });
 
-    // Ordina i giorni in modo decrescente (Oggi in cima)
     final sortedKeys = groups.keys.toList()..sort((a, b) => b.compareTo(a));
     final Map<String, List<File>> sortedGroups = {
       for (final k in sortedKeys) k: groups[k]!,
@@ -154,7 +150,6 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
     }
   }
 
-  // --- AVVIO E ARRESTO REGISTRAZIONE ---
   Future<void> _toggleSession() async {
     if (_isSessionActive) {
       await _stopSession();
@@ -227,12 +222,11 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
       _isSpeechListening = false;
     });
 
-    // Ricarica la lista giorni per mostrare subito la nuova nota
     await _loadFilesFromStorage();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nota vocale salvata con successo nel giorno di oggi!')),
+        const SnackBar(content: Text('Nuovo appunto salvato nel giorno di oggi!')),
       );
     }
   }
@@ -339,8 +333,8 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
                         children: [
                           Container(
                             padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFE0F2F1),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFE0F2F1),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(Icons.mic, size: 48, color: Color(0xFF00796B)),
@@ -352,7 +346,7 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Premi il pulsante in basso per registrare il tuo primo appunto vocale. Verrà organizzato automaticamente per giorno.',
+                            'Premi il pulsante in basso per iniziare. Ogni appunto vocale verrà salvato come file autonomo e organizzato per giorno.',
                             textAlign: TextAlign.center,
                             style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.4),
                           ),
@@ -372,7 +366,6 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
 
                       return InkWell(
                         onTap: () async {
-                          // Apre la pagina dedicata a quel giorno
                           await Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -383,7 +376,6 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
                               ),
                             ),
                           );
-                          // Ricarica la lista al ritorno se sono state cancellate note
                           _loadFilesFromStorage();
                         },
                         borderRadius: BorderRadius.circular(18),
@@ -429,7 +421,7 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
                                     Row(
                                       children: [
                                         Text(
-                                          '${dayFiles.length} ${dayFiles.length == 1 ? "nota" : "note"}',
+                                          '${dayFiles.length} ${dayFiles.length == 1 ? "appunto" : "appunti"}',
                                           style: const TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w600,
@@ -454,7 +446,6 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
                   ),
       ),
 
-      // BARRA FISSA DI REGISTRAZIONE IN BASSO
       bottomNavigationBar: SafeArea(
         child: Container(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -492,7 +483,7 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
                         },
                       ),
                       Text(
-                        'REGISTRAZIONE IN CORSO • ${_formatDuration(_sessionSeconds)} ($_sessionWordCount parole)',
+                        'REGISTRAZIONE ATTIVA • ${_formatDuration(_sessionSeconds)} ($_sessionWordCount parole)',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
@@ -529,9 +520,9 @@ class _DaysHomeScreenState extends State<DaysHomeScreen> with SingleTickerProvid
   }
 }
 
-// ==========================================
-// 2. PAGINA DEL SINGOLO GIORNO CON NOTE
-// ==========================================
+// ===================================================================
+// 2. PAGINA DEL GIORNO: ANTEPRIMA DIRETTA DI TUTTI GLI APPUNTI + INVIO
+// ===================================================================
 class DayDetailScreen extends StatefulWidget {
   final String dayKey;
   final String dayTitle;
@@ -551,22 +542,44 @@ class DayDetailScreen extends StatefulWidget {
 class _DayDetailScreenState extends State<DayDetailScreen> {
   late List<File> _files;
   final Set<File> _selectedFiles = {};
-  bool _isSelectionMode = false;
+  final Map<String, String> _fileContents = {};
+  final Set<String> _expandedFiles = {}; // Per espandere testi molto lunghi
+  bool _isLoadingContent = true;
 
   @override
   void initState() {
     super.initState();
     _files = List.from(widget.initialFiles);
+    _loadFileContents();
+  }
+
+  Future<void> _loadFileContents() async {
+    for (final file in _files) {
+      if (await file.exists()) {
+        try {
+          String text = await file.readAsString();
+          // Pulisce le righe di intestazione/chiusura tecniche per mostrare solo il testo parlato pulito
+          text = text.replaceAll(RegExp(r'--- (NOTA VOCALE|APPUNTI VOCALI|INIZIO REGISTRAZIONE).*?---\n*', caseSensitive: false), '');
+          text = text.replaceAll(RegExp(r'--- (FINE NOTA|FINE REGISTRAZIONE).*?---\n*', caseSensitive: false), '');
+          _fileContents[file.path] = text.trim();
+        } catch (_) {
+          _fileContents[file.path] = "Impossibile leggere il file.";
+        }
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _isLoadingContent = false;
+      });
+    }
   }
 
   void _toggleSelection(File file) {
     setState(() {
       if (_selectedFiles.contains(file)) {
         _selectedFiles.remove(file);
-        if (_selectedFiles.isEmpty) _isSelectionMode = false;
       } else {
         _selectedFiles.add(file);
-        _isSelectionMode = true;
       }
     });
   }
@@ -575,42 +588,44 @@ class _DayDetailScreenState extends State<DayDetailScreen> {
     setState(() {
       if (_selectedFiles.length == _files.length) {
         _selectedFiles.clear();
-        _isSelectionMode = false;
       } else {
         _selectedFiles.clear();
         _selectedFiles.addAll(_files);
-        _isSelectionMode = true;
       }
     });
   }
 
-  void _exitSelectionMode() {
-    setState(() {
-      _selectedFiles.clear();
-      _isSelectionMode = false;
-    });
-  }
-
-  // Condividi note selezionate (Multi-invio WhatsApp / Email / etc.)
-  void _shareSelected() {
+  // Invio delle note selezionate (Multi-selezione WhatsApp / Email)
+  void _shareSelectedFiles() {
     if (_selectedFiles.isEmpty) return;
 
     final xFiles = _selectedFiles.map((f) => XFile(f.path)).toList();
     Share.shareXFiles(
       xFiles,
-      subject: '${widget.dayTitle} (${_selectedFiles.length} note)',
-      text: 'In allegato le note vocali di ${widget.dayTitle}.',
+      subject: '${widget.dayTitle} (${_selectedFiles.length} file .txt)',
+      text: 'Ecco i file delle note vocali selezionate del ${widget.dayTitle}.',
     );
   }
 
-  // Elimina note selezionate
-  Future<void> _deleteSelected() async {
+  // Invio di tutte le note della giornata insieme
+  void _shareAllDayFiles() {
+    if (_files.isEmpty) return;
+    final xFiles = _files.map((f) => XFile(f.path)).toList();
+    Share.shareXFiles(
+      xFiles,
+      subject: 'Tutti gli appunti del ${widget.dayTitle} (${_files.length} file)',
+      text: 'In allegato tutti i file di trascrizione vocale del ${widget.dayTitle}.',
+    );
+  }
+
+  // Eliminazione note selezionate
+  Future<void> _deleteSelectedFiles() async {
     final count = _selectedFiles.length;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Elimina Note'),
-        content: Text('Sei sicuro di voler eliminare $count note da questa giornata?'),
+        title: const Text('Elimina Note Selezionate'),
+        content: Text('Sei sicuro di voler eliminare $count file .txt da questa giornata?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
           FilledButton(
@@ -630,99 +645,38 @@ class _DayDetailScreenState extends State<DayDetailScreen> {
         _files.remove(file);
       }
       _selectedFiles.clear();
-      _isSelectionMode = false;
       setState(() {});
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$count note eliminate.')),
+          SnackBar(content: Text('$count file eliminati definitivamente.')),
         );
       }
     }
   }
 
-  // Condivisione singola nota
-  void _showShareMenuForSingle(File file) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Condividi Nota',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: const Color(0xFF25D366).withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
-                  child: const Icon(Icons.chat_bubble_outline, color: Color(0xFF25D366)),
-                ),
-                title: const Text('Invia tramite WhatsApp', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                subtitle: const Text('Invia il file .txt nella chat', style: TextStyle(fontSize: 12)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Share.shareXFiles([XFile(file.path)], text: 'Nota vocale di ${widget.dayTitle}');
-                },
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.blue.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
-                  child: const Icon(Icons.email_outlined, color: Colors.blue),
-                ),
-                title: const Text('Invia tramite Email', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                subtitle: const Text('Allega la nota a una mail', style: TextStyle(fontSize: 12)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Share.shareXFiles([XFile(file.path)], subject: 'Nota ${widget.dayTitle}', text: 'In allegato il file di testo.');
-                },
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.red.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
-                  child: const Icon(Icons.picture_as_pdf_outlined, color: Colors.red),
-                ),
-                title: const Text('Esporta come PDF', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                subtitle: const Text('Genera documento PDF e condividilo', style: TextStyle(fontSize: 12)),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  await _exportSinglePdf(file);
-                },
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.grey.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
-                  child: const Icon(Icons.copy, color: Colors.grey),
-                ),
-                title: const Text('Copia Testo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  final text = await file.readAsString();
-                  await Clipboard.setData(ClipboardData(text: text));
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Testo copiato!')));
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+  // Invio rapido WhatsApp singola nota
+  void _sendSingleWhatsApp(File file) {
+    Share.shareXFiles(
+      [XFile(file.path)],
+      text: 'Nota vocale del ${widget.dayTitle}',
     );
   }
 
-  Future<void> _exportSinglePdf(File txtFile) async {
-    final content = await txtFile.readAsString();
+  // Invio rapido Email singola nota
+  void _sendSingleEmail(File file) {
+    final timeStr = _formatTime(file.lastModifiedSync());
+    Share.shareXFiles(
+      [XFile(file.path)],
+      subject: 'Appunto Vocale ore $timeStr - ${widget.dayTitle}',
+      text: 'In allegato il file di testo .txt della registrazione.',
+    );
+  }
+
+  // Esporta singola nota o giorno in PDF
+  Future<void> _exportPdf(File txtFile) async {
+    final content = _fileContents[txtFile.path] ?? await txtFile.readAsString();
+    final timeStr = _formatTime(txtFile.lastModifiedSync());
     final pdf = pw.Document();
 
     pdf.addPage(
@@ -730,7 +684,11 @@ class _DayDetailScreenState extends State<DayDetailScreen> {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         build: (pw.Context context) => [
-          pw.Header(level: 0, child: pw.Text("Nota Vocale - ${widget.dayTitle}", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
+          pw.Header(
+            level: 0,
+            child: pw.Text("Appunto Vocale delle ore $timeStr", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          ),
+          pw.Text("Giorno: ${widget.dayTitle}", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
           pw.SizedBox(height: 12),
           pw.Paragraph(text: content, style: const pw.TextStyle(fontSize: 12, lineSpacing: 2)),
         ],
@@ -741,53 +699,41 @@ class _DayDetailScreenState extends State<DayDetailScreen> {
     final pdfFile = File(pdfPath);
     await pdfFile.writeAsBytes(await pdf.save());
 
-    Share.shareXFiles([XFile(pdfFile.path)], subject: 'Nota PDF');
+    Share.shareXFiles([XFile(pdfFile.path)], subject: 'Appunto PDF ore $timeStr');
   }
 
-  // Visualizza contenuto nota
-  Future<void> _viewFile(File file) async {
-    if (!await file.exists()) return;
-    final content = await file.readAsString();
-    if (!mounted) return;
-
-    showModalBottomSheet(
+  // Elimina singolo file
+  Future<void> _deleteSingleFile(File file) async {
+    final confirm = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.8,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (_, controller) => Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Testo della Nota', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
-                ],
-              ),
-              Text(file.path.split('/').last, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-              const Divider(height: 24),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: controller,
-                  child: SelectableText(
-                    content.isEmpty ? "Nessun testo registrato." : content,
-                    style: const TextStyle(fontSize: 15, height: 1.5, color: Color(0xFF1E293B)),
-                  ),
-                ),
-              ),
-            ],
+      builder: (ctx) => AlertDialog(
+        title: const Text('Elimina File'),
+        content: const Text('Vuoi cancellare definitivamente questo appunto vocale dal telefono?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Elimina'),
           ),
-        ),
+        ],
       ),
     );
+
+    if (confirm == true) {
+      if (await file.exists()) {
+        await file.delete();
+      }
+      setState(() {
+        _files.remove(file);
+        _selectedFiles.remove(file);
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appunto eliminato.')),
+        );
+      }
+    }
   }
 
   String _formatTime(DateTime date) {
@@ -803,118 +749,236 @@ class _DayDetailScreenState extends State<DayDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final allSelected = _files.isNotEmpty && _selectedFiles.length == _files.length;
+    final hasSelection = _selectedFiles.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
-        leading: _isSelectionMode
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                tooltip: 'Annulla selezione',
-                onPressed: _exitSelectionMode,
-              )
-            : const BackButton(),
-        title: Text(
-          _isSelectionMode ? '${_selectedFiles.length} selezionate' : widget.dayTitle,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        title: Column(
+          children: [
+            Text(widget.dayTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            Text(
+              '${_files.length} ${_files.length == 1 ? "file .txt salvato" : "file .txt salvati"}',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.normal),
+            ),
+          ],
         ),
         actions: [
           if (_files.isNotEmpty)
-            IconButton(
-              icon: Icon(allSelected ? Icons.select_all : Icons.checklist_rtl_rounded),
-              tooltip: allSelected ? 'Deseleziona tutte' : 'Seleziona tutte',
+            TextButton.icon(
               onPressed: _selectAll,
+              icon: Icon(allSelected ? Icons.deselect : Icons.select_all, size: 18, color: const Color(0xFF00796B)),
+              label: Text(
+                allSelected ? 'Deseleziona' : 'Seleziona tutti',
+                style: const TextStyle(color: Color(0xFF00796B), fontWeight: FontWeight.bold, fontSize: 13),
+              ),
             ),
         ],
       ),
       body: SafeArea(
-        child: _files.isEmpty
-            ? const Center(
-                child: Text('Tutte le note di questa giornata sono state eliminate.'),
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-                itemCount: _files.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final file = _files[index];
-                  final isSelected = _selectedFiles.contains(file);
-                  final modified = file.lastModifiedSync();
-                  final timeStr = _formatTime(modified);
-                  final sizeKb = _formatBytes(file.existsSync() ? file.lengthSync() : 0);
+        child: _isLoadingContent
+            ? const Center(child: CircularProgressIndicator())
+            : _files.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.folder_open, size: 48, color: Colors.grey.shade300),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Tutti gli appunti di questa giornata sono stati eliminati.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 14, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 100),
+                    itemCount: _files.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 14),
+                    itemBuilder: (context, index) {
+                      final file = _files[index];
+                      final isSelected = _selectedFiles.contains(file);
+                      final modified = file.lastModifiedSync();
+                      final timeStr = _formatTime(modified);
+                      final sizeStr = _formatBytes(file.existsSync() ? file.lengthSync() : 0);
+                      final content = _fileContents[file.path] ?? "";
+                      final isExpanded = _expandedFiles.contains(file.path);
+                      final isLong = content.length > 220;
 
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFE0F2F1) : Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isSelected ? const Color(0xFF00796B) : Colors.grey.shade200,
-                        width: isSelected ? 1.5 : 1.0,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.02),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: isSelected ? const Color(0xFFE0F2F1) : Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: isSelected ? const Color(0xFF00796B) : Colors.grey.shade200,
+                            width: isSelected ? 2.0 : 1.0,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.02),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      onLongPress: () => _toggleSelection(file),
-                      onTap: () {
-                        if (_isSelectionMode) {
-                          _toggleSelection(file);
-                        } else {
-                          _viewFile(file);
-                        }
-                      },
-                      leading: _isSelectionMode
-                          ? Checkbox(
-                              value: isSelected,
-                              activeColor: const Color(0xFF00796B),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                              onChanged: (_) => _toggleSelection(file),
-                            )
-                          : Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE0F2F1),
-                                borderRadius: BorderRadius.circular(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // 1. INTESTAZIONE CARD: Spunta di selezione + Orario + Azioni rapide
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                              child: Row(
+                                children: [
+                                  // Checkbox per la selezione
+                                  Checkbox(
+                                    value: isSelected,
+                                    activeColor: const Color(0xFF00796B),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                                    onChanged: (_) => _toggleSelection(file),
+                                  ),
+                                  // Orario e Peso
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Ore $timeStr',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: isSelected ? const Color(0xFF004D40) : const Color(0xFF0F172A),
+                                          ),
+                                        ),
+                                        Text(
+                                          '${file.path.split('/').last} • $sizeStr',
+                                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Azioni rapide singole: WhatsApp & Email & Menu
+                                  IconButton(
+                                    icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF25D366), size: 20),
+                                    tooltip: 'Invia questa nota su WhatsApp',
+                                    onPressed: () => _sendSingleWhatsApp(file),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.email_outlined, color: Color(0xFF1976D2), size: 20),
+                                    tooltip: 'Invia questa nota via Email',
+                                    onPressed: () => _sendSingleEmail(file),
+                                  ),
+                                  PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert, size: 20, color: Colors.grey),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                    onSelected: (val) {
+                                      if (val == 'pdf') _exportPdf(file);
+                                      if (val == 'copy') {
+                                        Clipboard.setData(ClipboardData(text: content));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Testo copiato negli appunti!')),
+                                        );
+                                      }
+                                      if (val == 'delete') _deleteSingleFile(file);
+                                    },
+                                    itemBuilder: (ctx) => [
+                                      const PopupMenuItem(
+                                        value: 'pdf',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.picture_as_pdf_outlined, color: Colors.red, size: 18),
+                                            SizedBox(width: 10),
+                                            Text('Esporta come PDF'),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'copy',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.copy, size: 18),
+                                            SizedBox(width: 10),
+                                            Text('Copia testo'),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                                            SizedBox(width: 10),
+                                            Text('Elimina file .txt', style: TextStyle(color: Colors.red)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                              child: const Icon(Icons.mic_none_rounded, color: Color(0xFF00796B), size: 22),
                             ),
-                      title: Text(
-                        'Registrazione delle ore $timeStr',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                          color: isSelected ? const Color(0xFF004D40) : const Color(0xFF0F172A),
-                        ),
-                      ),
-                      subtitle: Text(
-                        '$sizeKb • Tocca per leggere il testo',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                      trailing: _isSelectionMode
-                          ? null
-                          : Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.share_outlined, color: Color(0xFF00796B)),
-                                  tooltip: 'Condividi (WhatsApp / Email)',
-                                  onPressed: () => _showShareMenuForSingle(file),
+
+                            // 2. CORPO CARD: ANTEPRIMA DIRETTA DEL TESTO TRASCRITTO
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? Colors.white.withOpacity(0.8) : const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                              ],
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SelectableText(
+                                      content.isEmpty
+                                          ? "Nota vuota o senza testo."
+                                          : (isLong && !isExpanded ? "${content.substring(0, 220)}..." : content),
+                                      style: const TextStyle(
+                                        fontSize: 14.5,
+                                        height: 1.45,
+                                        color: Color(0xFF1E293B),
+                                      ),
+                                    ),
+                                    if (isLong)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 6),
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            setState(() {
+                                              if (isExpanded) {
+                                                _expandedFiles.remove(file.path);
+                                              } else {
+                                                _expandedFiles.add(file.path);
+                                              }
+                                            });
+                                          },
+                                          child: Text(
+                                            isExpanded ? 'Riduci testo' : 'Leggi tutto...',
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF00796B),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
                             ),
-                    ),
-                  );
-                },
-              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
       ),
 
-      // BARRA AZIONI MULTIPLE IN BASSO (Compare quando selezioni note)
-      bottomNavigationBar: _selectedFiles.isEmpty
+      // 3. BARRA IN BASSO: Invio di gruppo o dell'intera giornata
+      bottomNavigationBar: _files.isEmpty
           ? null
           : SafeArea(
               child: Container(
@@ -929,36 +993,56 @@ class _DayDetailScreenState extends State<DayDetailScreen> {
                     ),
                   ],
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _deleteSelected,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFE53935),
-                          side: const BorderSide(color: Color(0xFFE53935), width: 1.5),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                child: hasSelection
+                    ? Row(
+                        children: [
+                          // Elimina parziale
+                          OutlinedButton.icon(
+                            onPressed: _deleteSelectedFiles,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFE53935),
+                              side: const BorderSide(color: Color(0xFFE53935), width: 1.5),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            icon: const Icon(Icons.delete_outline, size: 20),
+                            label: Text('Elimina (${_selectedFiles.length})'),
+                          ),
+                          const SizedBox(width: 10),
+                          // Invia parziale selezionato
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _shareSelectedFiles,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF00796B),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              icon: const Icon(Icons.share_outlined, size: 20),
+                              label: Text(
+                                'Invia ${_selectedFiles.length} Selezionati',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: FilledButton.icon(
+                          onPressed: _shareAllDayFiles,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF00796B),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          icon: const Icon(Icons.share, size: 20),
+                          label: Text(
+                            'Spedisci Tutte le Note del Giorno (${_files.length})',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          ),
                         ),
-                        icon: const Icon(Icons.delete_outline, size: 20),
-                        label: Text('Elimina (${_selectedFiles.length})'),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: _shareSelected,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF00796B),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        icon: const Icon(Icons.share_outlined, size: 20),
-                        label: Text('Invia (${_selectedFiles.length})'),
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ),
     );
