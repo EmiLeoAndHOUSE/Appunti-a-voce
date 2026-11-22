@@ -24,7 +24,7 @@ class VoiceTranscriberApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF00796B), // Teal elegante
+          seedColor: const Color(0xFF00796B),
           brightness: Brightness.light,
         ),
         useMaterial3: true,
@@ -240,7 +240,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
     });
   }
 
-  // --- MODALE DI CONDIVISIONE ---
   void _showShareBottomSheet(File file) {
     showModalBottomSheet(
       context: context,
@@ -297,7 +296,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
               ),
               const SizedBox(height: 20),
 
-              // WhatsApp
               _buildShareOption(
                 icon: Icons.chat_bubble_outline,
                 iconColor: const Color(0xFF25D366),
@@ -314,7 +312,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
 
               const SizedBox(height: 10),
 
-              // Email
               _buildShareOption(
                 icon: Icons.email_outlined,
                 iconColor: const Color(0xFF1976D2),
@@ -332,7 +329,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
 
               const SizedBox(height: 10),
 
-              // PDF
               _buildShareOption(
                 icon: Icons.picture_as_pdf_outlined,
                 iconColor: const Color(0xFFD32F2F),
@@ -346,7 +342,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
 
               const SizedBox(height: 10),
 
-              // Copia testo
               _buildShareOption(
                 icon: Icons.copy_rounded,
                 iconColor: const Color(0xFF546E7A),
@@ -522,7 +517,7 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
       MaterialPageRoute(
         builder: (_) => ArchiveScreen(
           files: files,
-          onShare: _showShareBottomSheet,
+          onShareSingle: _showShareBottomSheet,
           onView: _viewSavedFile,
         ),
       ),
@@ -564,7 +559,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
       body: SafeArea(
         child: Column(
           children: [
-            // Scheda Statistiche
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Container(
@@ -593,7 +587,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
               ),
             ),
 
-            // Card Stato Microfono / Parla ora
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Container(
@@ -669,7 +662,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
               ),
             ),
 
-            // Card Ultime Frasi Scritte
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
@@ -762,7 +754,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
         ),
       ),
 
-      // BARRA AZIONI FISSA IN BASSO (Completamente priva di sovrapposizioni)
       bottomNavigationBar: SafeArea(
         child: Container(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -779,7 +770,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Pulsante Principale di Registrazione (Grande e chiaro)
               SizedBox(
                 width: double.infinity,
                 height: 54,
@@ -799,7 +789,6 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
                 ),
               ),
 
-              // Pulsante Condividi (visibile solo se non si sta registrando ed esiste già una nota)
               if (!_isSessionActive && _activeFile != null) ...[
                 const SizedBox(height: 10),
                 SizedBox(
@@ -862,16 +851,16 @@ class _TranscriberScreenState extends State<TranscriberScreen> with SingleTicker
   }
 }
 
-// --- ARCHIVIO REGISTRAZIONI ---
+// --- ARCHIVIO REGISTRAZIONI CON MULTI-SELEZIONE ---
 class ArchiveScreen extends StatefulWidget {
   final List<File> files;
-  final Function(File) onShare;
+  final Function(File) onShareSingle;
   final Function(File) onView;
 
   const ArchiveScreen({
     super.key,
     required this.files,
-    required this.onShare,
+    required this.onShareSingle,
     required this.onView,
   });
 
@@ -881,6 +870,8 @@ class ArchiveScreen extends StatefulWidget {
 
 class _ArchiveScreenState extends State<ArchiveScreen> {
   late List<File> _fileList;
+  final Set<File> _selectedFiles = {};
+  bool _isSelectionMode = false;
 
   @override
   void initState() {
@@ -888,23 +879,154 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     _fileList = List.from(widget.files);
   }
 
-  void _deleteFile(File file) async {
-    await file.delete();
+  void _toggleSelection(File file) {
     setState(() {
-      _fileList.remove(file);
+      if (_selectedFiles.contains(file)) {
+        _selectedFiles.remove(file);
+        if (_selectedFiles.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedFiles.add(file);
+        _isSelectionMode = true;
+      }
     });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nota eliminata.')),
-      );
+  }
+
+  void _selectAll() {
+    setState(() {
+      if (_selectedFiles.length == _fileList.length) {
+        _selectedFiles.clear();
+        _isSelectionMode = false;
+      } else {
+        _selectedFiles.clear();
+        _selectedFiles.addAll(_fileList);
+        _isSelectionMode = true;
+      }
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectedFiles.clear();
+      _isSelectionMode = false;
+    });
+  }
+
+  // Condivisione Multipla (invia tutti i file selezionati insieme)
+  void _shareSelectedFiles() {
+    if (_selectedFiles.isEmpty) return;
+
+    final xFiles = _selectedFiles.map((f) => XFile(f.path)).toList();
+    Share.shareXFiles(
+      xFiles,
+      subject: 'Appunti Vocali (${_selectedFiles.length} file)',
+      text: 'In allegato le note vocali trascritte selezionate.',
+    );
+  }
+
+  // Eliminazione Multipla con conferma
+  Future<void> _deleteSelectedFiles() async {
+    final count = _selectedFiles.length;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Elimina Note Selezionate'),
+        content: Text('Sei sicuro di voler eliminare definitivamente $count note vocali dal telefono?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Elimina'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      for (final file in _selectedFiles) {
+        if (await file.exists()) {
+          await file.delete();
+        }
+        _fileList.remove(file);
+      }
+      _selectedFiles.clear();
+      _isSelectionMode = false;
+
+      setState(() {});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$count note eliminate con successo.')),
+        );
+      }
+    }
+  }
+
+  void _deleteSingleFile(File file) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Elimina Nota'),
+        content: Text('Vuoi eliminare "${file.path.split('/').last}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Elimina'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await file.delete();
+      setState(() {
+        _fileList.remove(file);
+        _selectedFiles.remove(file);
+        if (_selectedFiles.isEmpty) _isSelectionMode = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nota eliminata.')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final allSelected = _fileList.isNotEmpty && _selectedFiles.length == _fileList.length;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Archivio Note Vocali'),
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: 'Annulla selezione',
+                onPressed: _exitSelectionMode,
+              )
+            : const BackButton(),
+        title: Text(
+          _isSelectionMode ? '${_selectedFiles.length} selezionati' : 'Archivio Note Vocali',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
+        actions: [
+          if (_fileList.isNotEmpty)
+            IconButton(
+              icon: Icon(allSelected ? Icons.select_all : Icons.checklist_rtl_rounded),
+              tooltip: allSelected ? 'Deseleziona tutti' : 'Seleziona tutti',
+              onPressed: _selectAll,
+            ),
+        ],
       ),
       body: SafeArea(
         child: _fileList.isEmpty
@@ -912,7 +1034,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.folder_open, size: 48, color: Colors.grey.shade300),
+                    Icon(Icons.folder_open, size: 52, color: Colors.grey.shade300),
                     const SizedBox(height: 12),
                     Text(
                       'Nessuna nota salvata nell\'archivio.',
@@ -922,11 +1044,12 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                 ),
               )
             : ListView.separated(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
                 itemCount: _fileList.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
                   final file = _fileList[index];
+                  final isSelected = _selectedFiles.contains(file);
                   final date = file.lastModifiedSync();
                   final dateStr =
                       "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}";
@@ -934,8 +1057,12 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
 
                   return Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
+                      color: isSelected ? const Color(0xFFE0F2F1) : Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isSelected ? const Color(0xFF00796B) : Colors.grey.shade200,
+                        width: isSelected ? 1.5 : 1.0,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withOpacity(0.02),
@@ -946,40 +1073,114 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                     ),
                     child: ListTile(
                       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      leading: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE0F2F1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.description_outlined, color: Color(0xFF00796B)),
-                      ),
+                      onLongPress: () => _toggleSelection(file),
+                      onTap: () {
+                        if (_isSelectionMode) {
+                          _toggleSelection(file);
+                        } else {
+                          widget.onView(file);
+                        }
+                      },
+                      leading: _isSelectionMode
+                          ? Checkbox(
+                              value: isSelected,
+                              activeColor: const Color(0xFF00796B),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              onChanged: (_) => _toggleSelection(file),
+                            )
+                          : Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE0F2F1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.description_outlined, color: Color(0xFF00796B)),
+                            ),
                       title: Text(
                         file.path.split('/').last,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: isSelected ? const Color(0xFF004D40) : const Color(0xFF1E293B),
+                        ),
                       ),
-                      subtitle: Text('$dateStr • $sizeKb KB', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                      onTap: () => widget.onView(file),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.share_outlined, color: Color(0xFF00796B)),
-                            tooltip: 'Condividi (WhatsApp / Email)',
-                            onPressed: () => widget.onShare(file),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Color(0xFFE53935)),
-                            tooltip: 'Elimina',
-                            onPressed: () => _deleteFile(file),
-                          ),
-                        ],
+                      subtitle: Text(
+                        '$dateStr • $sizeKb KB',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                       ),
+                      trailing: _isSelectionMode
+                          ? null
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.share_outlined, color: Color(0xFF00796B)),
+                                  tooltip: 'Condividi (WhatsApp / Email)',
+                                  onPressed: () => widget.onShareSingle(file),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Color(0xFFE53935)),
+                                  tooltip: 'Elimina',
+                                  onPressed: () => _deleteSingleFile(file),
+                                ),
+                              ],
+                            ),
                     ),
                   );
                 },
               ),
       ),
+
+      // BARRA AZIONI MULTIPLE IN BASSO (Compare solo se ci sono elementi selezionati)
+      bottomNavigationBar: _selectedFiles.isEmpty
+          ? null
+          : SafeArea(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 16,
+                      offset: const Offset(0, -4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    // Elimina selezionati
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _deleteSelectedFiles,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFE53935),
+                          side: const BorderSide(color: Color(0xFFE53935), width: 1.5),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        label: Text('Elimina (${_selectedFiles.length})'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Condividi / Invia selezionati
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _shareSelectedFiles,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF00796B),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.share_outlined, size: 20),
+                        label: Text('Invia (${_selectedFiles.length})'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }
